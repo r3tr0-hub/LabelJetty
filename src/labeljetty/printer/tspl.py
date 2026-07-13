@@ -1065,6 +1065,9 @@ class TSPLPrinter:
         self, draw, text: str, max_w: int, max_h: int, font_path: str, min_size: int = 8
     ) -> ImageFont.FreeTypeFont:
         """Largest font at which ``text`` fits on one line within max_w × max_h."""
+        # PIL's textlength() raises on embedded newlines; this fitter is single
+        # line by contract, so flatten defensively regardless of caller (#5).
+        text = " ".join(text.split())
         lo, hi, best = min_size, max(min_size, max_h), min_size
         while lo <= hi:
             mid = (lo + hi) // 2
@@ -1128,6 +1131,10 @@ class TSPLPrinter:
         """Render a QR + caption to a full label image (no print). See ``print_qrcode_with_text``."""
         if not text:
             return self.build_qrcode_image(qr_data, ecc_level=ecc_level, border=border)
+
+        # Caption is a single line; flatten any newlines so PIL's textlength()
+        # (used to fit and to place the caption) never sees multiline text (#5).
+        text = " ".join(text.split())
 
         margin = 8
         canvas = Image.new("1", (self.width_px, self.height_px), 1)

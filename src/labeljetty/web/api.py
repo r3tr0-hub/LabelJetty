@@ -450,9 +450,14 @@ async def homebox_label_service(
     if not config.HOMEBOX_ENABLED:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
 
-    caption = TitleText
-    if DescriptionText:
-        caption = f"{TitleText} · {DescriptionText}" if TitleText else DescriptionText
+    # Homebox item descriptions may contain newlines; the QR caption is a single
+    # line, so collapse any run of whitespace (incl. \r\n) to single spaces. Left
+    # unflattened this reaches PIL as multiline text and 500s the request (#5).
+    title = " ".join(TitleText.split())
+    description = " ".join(DescriptionText.split())
+    caption = title
+    if description:
+        caption = f"{title} · {description}" if title else description
     params = {
         "data": URL or TitleText or "",
         "text": caption or None,

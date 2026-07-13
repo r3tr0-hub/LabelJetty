@@ -184,6 +184,25 @@ def test_homebox_label_returns_png_and_autoprints(client, worker_running, monkey
     assert jobs[0].job_type == "qrcode"
 
 
+def test_homebox_label_multiline_description_ok(client, monkeypatch):
+    # Homebox item descriptions can contain newlines; the caption renderer is
+    # single-line and used to 500 with PIL's "can't measure length of multiline
+    # text" (issue #5). It must render fine after flattening whitespace.
+    monkeypatch.setattr(api_mod.config, "HOMEBOX_ENABLED", True)
+    monkeypatch.setattr(api_mod.config, "HOMEBOX_LABEL_SERVICE_AUTOPRINT", False)
+    resp = client.get(
+        "/api/homebox/label",
+        params={
+            "TitleText": "000-030",
+            "DescriptionText": "teste2\nLocation: Gaveta 4",
+            "URL": "/a/000-030",
+        },
+    )
+    assert resp.status_code == 200
+    assert resp.headers["content-type"] == "image/png"
+    assert resp.content[:8] == b"\x89PNG\r\n\x1a\n"
+
+
 # --------------------------------------------------------------------------- #
 #  Auth enforcement (protected mode)
 # --------------------------------------------------------------------------- #
