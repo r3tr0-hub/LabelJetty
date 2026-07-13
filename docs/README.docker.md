@@ -20,12 +20,13 @@ services:
     restart: unless-stopped
     ports:
       - "8888:8888"
-    devices:
-      - /dev/bus/usb:/dev/bus/usb      # the printer's USB bus
+    device_cgroup_rules:
+      - "c 189:* rmw"                  # allow all USB device nodes (survives replug)
     environment:
       PRINTER_USB: vid:2d37:pid:62de   # the only required setting; find yours with `lsusb`
     volumes:
       - ./data:/data                   # persists the job DB + stored images
+      - /dev/bus/usb:/dev/bus/usb      # the printer's USB bus (live, so replugs appear)
 ```
 
 ```sh
@@ -34,8 +35,12 @@ docker compose up -d
 
 Then open **http://localhost:8888/**.
 
-- **`devices: /dev/bus/usb`** gives the container the printer's USB bus (permissions are governed
-  by a host **udev rule** you set once, see [Manual Docker setup](https://github.com/motey/LabelJetty/blob/main/docs/advanced-usage.md#grant-usb-access)).
+- **`/dev/bus/usb` (bind mount) + `device_cgroup_rules`** give the container the printer's USB bus.
+  We use a bind mount rather than `devices:` on purpose: a static `devices:` mapping pins the node
+  that existed at `up` time, so unplugging/replugging the printer (which gives it a new device node)
+  leaves the container stuck on the old one. The bind mount plus the cgroup rule let replugged
+  devices show up live. Permissions are still governed by a host **udev rule** you set once, see
+  [Manual Docker setup](https://github.com/motey/LabelJetty/blob/main/docs/advanced-usage.md#grant-usb-access).
 - **`PRINTER_USB`** selects which USB device is your printer. Leave it **unset** to auto-detect a
   single connected TSPL printer, or pin one with `vid:<vendor>:pid:<product>` (the robust form;
   find yours with `lsusb`).
@@ -52,7 +57,8 @@ A one-off `docker run` (no compose file) is fine for a quick try:
 
 ```sh
 docker run --rm -p 8888:8888 \
-  --device=/dev/bus/usb \
+  --device-cgroup-rule='c 189:* rmw' \
+  -v /dev/bus/usb:/dev/bus/usb \
   -e PRINTER_USB=vid:2d37:pid:62de \
   -v "$(pwd)/data:/data" \
   motey/labeljetty:latest

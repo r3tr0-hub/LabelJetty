@@ -83,8 +83,8 @@ If you are not in `plugdev`, add yourself and log out/in:
 sudo usermod -aG plugdev "$USER"
 ```
 
-This rule lives on the **host** and governs the device for Docker too: the container's
-`--device=/dev/bus/usb` only passes the device through, the host still controls its permissions.
+This rule lives on the **host** and governs the device for Docker too: passing the USB bus into
+the container only forwards the device, the host still controls its permissions.
 
 > Just want a one-off local test without the rule? Run the command with `sudo` (e.g.
 > `sudo uv run labeljetty-testbench status`). The udev rule is the proper, persistent solution
@@ -101,13 +101,20 @@ services:
     restart: unless-stopped
     ports:
       - "8888:8888"
-    devices:
-      - /dev/bus/usb:/dev/bus/usb      # the printer's USB bus
+    device_cgroup_rules:
+      - "c 189:* rmw"                  # allow all USB device nodes (survives replug)
     environment:
       PRINTER_USB: vid:2d37:pid:62de   # from "Find your printer"; omit to auto-detect
     volumes:
       - ./data:/data                   # persists the job DB + stored images
+      - /dev/bus/usb:/dev/bus/usb      # the printer's USB bus (live, so replugs appear)
 ```
+
+> **Why a bind mount and not `devices:`?** A `devices: /dev/bus/usb:/dev/bus/usb` mapping binds the
+> device node that exists at `up` time. Unplug and replug the printer and the kernel gives it a new
+> node (e.g. `001/015` → `001/016`); the container is still pointed at the old, dead one and stops
+> seeing the printer until you recreate it. Bind-mounting `/dev/bus/usb` plus the `c 189:* rmw`
+> cgroup rule (which permits the whole USB device major) lets the new node appear live instead.
 
 ```sh
 docker compose up -d

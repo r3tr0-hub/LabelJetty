@@ -15,10 +15,16 @@ services:
     restart: unless-stopped
     ports:
       - "8888:8888"
-    devices:
-      # Pass the printer's USB bus through to the container. You can narrow this to a
-      # single device node, e.g. /dev/bus/usb/001/015:/dev/bus/usb/001/015 (changes on replug).
-      - /dev/bus/usb:/dev/bus/usb
+    # USB passthrough that survives unplug/replug. We do NOT use `devices:` here:
+    # a static device mapping pins the node that existed at `up` time, so when the
+    # printer is replugged (and the kernel hands it a new /dev/bus/usb/NNN/MMM node)
+    # the container keeps looking at the old, now-dead node. Instead:
+    #   - device_cgroup_rules grants access to the whole USB device major (189),
+    #     so any current-or-future USB node is permitted; and
+    #   - the bind mount below exposes /dev/bus/usb live, so newly created nodes
+    #     appear inside the container without a restart.
+    device_cgroup_rules:
+      - "c 189:* rmw"
     environment:
       # The only required setting. Find your ids with `lsusb`.
       PRINTER_USB: vid:2d37:pid:62de
@@ -36,3 +42,6 @@ services:
     volumes:
       # Persists the SQLite job DB and stored images (container points /data at these).
       - ./data:/data
+      # Live view of the USB bus so replugged printers (new device nodes) show up
+      # without recreating the container. Paired with device_cgroup_rules above.
+      - /dev/bus/usb:/dev/bus/usb
