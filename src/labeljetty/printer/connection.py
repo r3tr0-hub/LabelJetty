@@ -24,6 +24,47 @@ KNOWN_TSPL_VENDORS: dict[int, str] = {
 _USB_CLASS_PRINTER = 7
 
 
+def _fresh_backend():
+    """A libusb backend backed by a brand-new context, falling back to pyusb's
+    shared backend if the internals differ.
+
+    Why not just use pyusb's default (cached) backend: libusb enumerates the
+    USB bus once when its context is created and thereafter learns about
+    plug/unplug only from udev/netlink ``uevents``. Inside a container those
+    uevents typically never arrive, so the cached context goes stale — a
+    printer replugged onto a new ``/dev/bus/usb`` node stays invisible (it
+    keeps handing back the dead node), and a printer plugged in after startup
+    is never seen at all. This is issue #4.
+
+    A fresh ``libusb_init`` always re-reads sysfs, so it reflects the current
+    device nodes even with no uevents. The bind-mounted ``/dev/bus/usb`` +
+    ``device_cgroup_rules`` (see docker-compose.yml) make those nodes appear
+    live in the container; enumerating through a new context here is what makes
+    the app actually act on them. Detection already re-runs on every status
+    poll and every job, so a per-scan context has no practical cost.
+
+    Uses pyusb internals (``_LibUSB``) because pyusb exposes no public API for
+    forcing a new context. ``get_backend()`` first loads the shared library and
+    populates the module globals that enumeration relies on; we then wrap that
+    same library in a new libusb context.
+    """
+    try:
+        from usb.backend import libusb1
+
+        shared = libusb1.get_backend()
+        if shared is None or libusb1._lib is None:
+            return shared  # libusb unavailable or unexpected state — use default
+        return libusb1._LibUSB(libusb1._lib)  # new libusb_init => fresh sysfs scan
+    except Exception:
+        return None
+
+
+def _find(**kwargs):
+    """``usb.core.find`` wrapper that always enumerates through a fresh libusb
+    context, so hotplugged printers are seen inside containers (issue #4)."""
+    return usb.core.find(backend=_fresh_backend(), **kwargs)
+
+
 class TSPLPrinterConnectionUSB:
     """
     Automatically detects a TSPL printer by probing USB devices and sending
@@ -90,7 +131,7 @@ class TSPLPrinterConnectionUSB:
         written to the device — so it is safe to run unattended (e.g. on every job
         when ``PRINTER_USB`` is unset).
         """
-        found = usb.core.find(find_all=True)
+        found = _find(find_all=True)
         if found is None:
             return []
         return [dev for dev in found if cls._matches(dev)]
@@ -182,7 +223,7 @@ class TSPLPrinterConnectionUSB:
         are collapsed (the selector can't distinguish two identical models anyway).
         """
         try:
-            found = usb.core.find(find_all=True)
+            found = _find(find_all=True)
         except Exception:
             return []
         if found is None:
@@ -223,7 +264,7 @@ class TSPLPrinterConnectionUSB:
         if isinstance(product, str):
             product = int(product, 16)
 
-        devices = usb.core.find(
+        devices = _find(
             find_all=True,
             idVendor=vendor if vendor is not None else None,
             idProduct=product if product is not None else None,
@@ -253,7 +294,7 @@ class TSPLPrinterConnectionUSB:
         if isinstance(device_id, str):
             device_id = int(device_id)
 
-        for dev in usb.core.find(find_all=True):
+        for dev in _find(find_all=True):
             if dev.bus == bus and dev.address == device_id:
                 return cls(dev)
 
@@ -267,7 +308,7 @@ class TSPLPrinterConnectionUSB:
         if not serial:
             raise ValueError("Serial cannot be empty")
 
-        for dev in usb.core.find(find_all=True):
+        for dev in _find(find_all=True):
             try:
                 dev_serial = usb.util.get_string(dev, dev.iSerialNumber)
             except Exception:
@@ -293,7 +334,7 @@ class TSPLPrinterConnectionUSB:
             # Convert "3-1-2" → [3,1,2]
             port_path = [int(x) for x in port_path.split("-")]
 
-        for dev in usb.core.find(find_all=True):
+        for dev in _find(find_all=True):
             if dev.port_numbers == port_path:
                 return cls(dev)
 
@@ -345,7 +386,7 @@ class TSPLPrinterConnectionUSB:
     # -----------------------------
     @staticmethod
     def find_device_by_bus_and_address(bus, address):
-        for dev in usb.core.find(find_all=True):
+        for dev in _find(find_all=True):
             if dev.bus == bus and dev.address == address:
                 return dev
         return None

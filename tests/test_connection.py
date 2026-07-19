@@ -9,6 +9,7 @@ import pytest
 import usb.core
 import usb.util
 
+from labeljetty.printer import connection
 from labeljetty.printer.connection import TSPLPrinterConnectionUSB as Conn
 
 
@@ -29,7 +30,7 @@ def fake_usb(monkeypatch):
     """Patch usb.core.find + usb.util.get_string with a single fake device."""
     dev = FakeDev()
 
-    def fake_find(find_all=False, idVendor=None, idProduct=None):
+    def fake_find(find_all=False, idVendor=None, idProduct=None, backend=None):
         matches = [dev]
         if idVendor is not None:
             matches = [d for d in matches if d.idVendor == idVendor]
@@ -38,6 +39,8 @@ def fake_usb(monkeypatch):
         return iter(matches) if find_all else (matches[0] if matches else None)
 
     monkeypatch.setattr(usb.core, "find", fake_find)
+    # Don't spin up a real libusb context in unit tests; the fake find ignores it.
+    monkeypatch.setattr(connection, "_fresh_backend", lambda: None)
     monkeypatch.setattr(usb.util, "get_string", lambda d, idx: d._serial)
     return dev
 
@@ -157,7 +160,7 @@ class FakeDiscDev:
 def _patch_find(monkeypatch, devices):
     """Make usb.core.find return ``devices`` (and stub string reads)."""
 
-    def fake_find(find_all=False, idVendor=None, idProduct=None):
+    def fake_find(find_all=False, idVendor=None, idProduct=None, backend=None):
         matches = list(devices)
         if idVendor is not None:
             matches = [d for d in matches if d.idVendor == idVendor]
@@ -166,6 +169,8 @@ def _patch_find(monkeypatch, devices):
         return iter(matches) if find_all else (matches[0] if matches else None)
 
     monkeypatch.setattr(usb.core, "find", fake_find)
+    # Don't spin up a real libusb context in unit tests; the fake find ignores it.
+    monkeypatch.setattr(connection, "_fresh_backend", lambda: None)
     monkeypatch.setattr(usb.util, "get_string", lambda d, idx: "FakeMfg")
 
 
