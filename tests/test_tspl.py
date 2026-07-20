@@ -168,3 +168,49 @@ def test_fit_image_zero_margin_fills_to_edge():
     out = printer._fit_image(black, fit="fill", margin_mm=0.0)
     assert out.getpixel((0, 0)) == 0
     assert out.getpixel((printer.width_px - 1, printer.height_px - 1)) == 0
+
+
+# --------------------------------------------------------------------------- #
+#  Content rotation (same label format, content turned in 90° steps)
+# --------------------------------------------------------------------------- #
+@pytest.mark.parametrize("rotate", [0, 90, 180, 270])
+def test_rotation_keeps_label_size_and_restores_geometry(rotate):
+    """Every rotation returns a real-label-sized image and leaves the printer's
+    own geometry untouched (the 90/270 transpose is only temporary)."""
+    printer, _ = make_printer()  # landscape 57x32mm
+    before = (printer.width_px, printer.height_px)
+    img = printer.build_text_image("hello world", rotate=rotate)
+    assert img.size == (printer.width_px, printer.height_px)
+    assert (printer.width_px, printer.height_px) == before
+
+
+def test_rotation_snaps_unknown_angle_to_no_op():
+    printer, _ = make_printer()
+    a = printer.build_text_image("x", rotate=0)
+    b = printer.build_text_image("x", rotate=45)  # not a 90° step → treated as 0
+    assert list(a.getdata()) == list(b.getdata())
+
+
+def test_rotation_90_changes_the_bitmap():
+    """A quarter turn actually rotates the content (not a no-op)."""
+    printer, _ = make_printer()
+    a = printer.build_text_image("Label", rotate=0)
+    b = printer.build_text_image("Label", rotate=90)
+    assert list(a.getdata()) != list(b.getdata())
+
+
+def test_rotation_180_is_a_flip_of_the_unrotated_bitmap():
+    printer, _ = make_printer()
+    base = printer.build_text_image("Label", rotate=0)
+    turned = printer.build_text_image("Label", rotate=180)
+    assert turned.size == base.size
+    assert list(turned.rotate(180).getdata()) == list(base.getdata())
+
+
+def test_rotation_90_and_270_auto_fit_differs_from_unrotated():
+    """Smart auto-fit: sizing targets the rotated aspect ratio, so a quarter turn
+    on a strongly non-square label yields a different fit than no rotation."""
+    printer, _ = make_printer()
+    black0 = printer.build_text_image("AB", rotate=0).convert("L").histogram()[0]
+    black90 = printer.build_text_image("AB", rotate=90).convert("L").histogram()[0]
+    assert black0 != black90

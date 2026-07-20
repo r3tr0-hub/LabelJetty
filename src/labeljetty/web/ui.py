@@ -96,20 +96,29 @@ def _build_params(
     fit: str,
     page: str,
     image_fit: str,
+    rotate: int = 0,
 ) -> dict:
-    """Assemble the type-specific ``params`` dict from the shared form fields."""
+    """Assemble the type-specific ``params`` dict from the shared form fields.
+
+    ``rotate`` (0/90/180/270°, clockwise) is carried for the content types that
+    support it — text, markdown, PDF and images.
+    """
     if job_type == "text":
-        return {"text": text or "", "font_size": font_size, "fit": fit}
+        return {"text": text or "", "font_size": font_size, "fit": fit, "rotate": rotate}
     if job_type == "markdown":
-        return {"text": text or "", "fit": fit}
+        return {"text": text or "", "fit": fit, "rotate": rotate}
     if job_type == "barcode":
         return {"data": data or "", "barcode_type": barcode_type, "text": text or None}
     if job_type == "qrcode":
         return {"data": data or "", "ecc_level": ecc_level, "text": text or None}
     if job_type == "pdf":
-        return {"page": page if page == "all" else int(page or 0), "fit": image_fit}
+        return {
+            "page": page if page == "all" else int(page or 0),
+            "fit": image_fit,
+            "rotate": rotate,
+        }
     if job_type == "png":
-        return {"fit": image_fit}
+        return {"fit": image_fit, "rotate": rotate}
     return {}
 
 
@@ -178,6 +187,7 @@ async def ui_preview(
     fit: Annotated[str, Form()] = "fill",
     page: Annotated[str, Form()] = "0",
     image_fit: Annotated[str, Form()] = "fit",
+    rotate: Annotated[int, Form()] = 0,
     label_width_mm: Annotated[Optional[int], Form()] = None,
     label_height_mm: Annotated[Optional[int], Form()] = None,
     dpi: Annotated[Optional[int], Form()] = None,
@@ -194,6 +204,7 @@ async def ui_preview(
         fit=fit,
         page=page,
         image_fit=image_fit,
+        rotate=rotate,
     )
 
     tmp_path: Optional[Path] = None
@@ -249,6 +260,7 @@ async def ui_print(
     fit: Annotated[str, Form()] = "fill",
     page: Annotated[str, Form()] = "0",
     image_fit: Annotated[str, Form()] = "fit",
+    rotate: Annotated[int, Form()] = 0,
     label_width_mm: Annotated[Optional[int], Form()] = None,
     label_height_mm: Annotated[Optional[int], Form()] = None,
     dpi: Annotated[Optional[int], Form()] = None,
@@ -273,6 +285,7 @@ async def ui_print(
         fit=fit,
         page=page,
         image_fit=image_fit,
+        rotate=rotate,
     )
     try:
         input_file_name = None

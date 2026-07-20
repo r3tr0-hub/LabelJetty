@@ -35,6 +35,11 @@ fast_api_router: APIRouter = APIRouter()
 # --------------------------------------------------------------------------- #
 #  Request bodies
 # --------------------------------------------------------------------------- #
+# Content rotation, in clockwise degrees. Snapped to these four steps; the label
+# format is unchanged — only the content is turned (see TSPLPrinter._apply_rotation).
+Rotation = Literal[0, 90, 180, 270]
+
+
 class LabelOptions(BaseModel):
     label_width_mm: Optional[int] = Field(
         default=None, description="Override label width in mm (else server default)."
@@ -56,12 +61,20 @@ class TextPrintRequest(LabelOptions):
         description="Auto-fit mode when font_size is omitted: 'fill' grows to fill "
         "the label; 'width' sizes to the label width keeping line breaks.",
     )
+    rotate: Rotation = Field(
+        default=0,
+        description="Rotate the text by 0/90/180/270° clockwise on the same "
+        "label; auto-fit adapts to the rotated shape.",
+    )
 
 
 class MarkdownPrintRequest(LabelOptions):
     text: str
     fit: Literal["fill", "width"] = Field(
         default="fill", description="Auto-fit mode (see /print/text)."
+    )
+    rotate: Rotation = Field(
+        default=0, description="Rotate the content by 0/90/180/270° clockwise."
     )
 
 
@@ -140,6 +153,7 @@ async def print_png(
     access: Annotated[bool, Depends(require_access)],
     file: Annotated[UploadFile, File()],
     fit: Annotated[Literal["fit", "fill", "stretch", "original"], Form()] = "fit",
+    rotate: Annotated[Rotation, Form()] = 0,
     label_width_mm: Annotated[Optional[int], Form()] = None,
     label_height_mm: Annotated[Optional[int], Form()] = None,
     dpi: Annotated[Optional[int], Form()] = None,
@@ -152,7 +166,9 @@ async def print_png(
         dpi=dpi,
         copies=copies,
     )
-    return _enqueue("png", opts=opts, params={"fit": fit}, input_file_name=filename)
+    return _enqueue(
+        "png", opts=opts, params={"fit": fit, "rotate": rotate}, input_file_name=filename
+    )
 
 
 @fast_api_router.post("/print/pdf", tags=["Print"])
@@ -161,6 +177,7 @@ async def print_pdf(
     file: Annotated[UploadFile, File()],
     page: Annotated[str, Form()] = "0",
     fit: Annotated[Literal["fit", "fill", "stretch", "original"], Form()] = "fit",
+    rotate: Annotated[Rotation, Form()] = 0,
     label_width_mm: Annotated[Optional[int], Form()] = None,
     label_height_mm: Annotated[Optional[int], Form()] = None,
     dpi: Annotated[Optional[int], Form()] = None,
@@ -176,7 +193,10 @@ async def print_pdf(
     # "all" or a page index
     page_param = page if page == "all" else int(page)
     return _enqueue(
-        "pdf", opts=opts, input_file_name=filename, params={"page": page_param, "fit": fit}
+        "pdf",
+        opts=opts,
+        input_file_name=filename,
+        params={"page": page_param, "fit": fit, "rotate": rotate},
     )
 
 
@@ -188,7 +208,12 @@ async def print_text(
     return _enqueue(
         "text",
         opts=body,
-        params={"text": body.text, "font_size": body.font_size, "fit": body.fit},
+        params={
+            "text": body.text,
+            "font_size": body.font_size,
+            "fit": body.fit,
+            "rotate": body.rotate,
+        },
     )
 
 
@@ -198,7 +223,9 @@ async def print_markdown(
     body: MarkdownPrintRequest,
 ) -> PrintJob:
     return _enqueue(
-        "markdown", opts=body, params={"text": body.text, "fit": body.fit}
+        "markdown",
+        opts=body,
+        params={"text": body.text, "fit": body.fit, "rotate": body.rotate},
     )
 
 

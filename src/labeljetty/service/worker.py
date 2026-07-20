@@ -264,11 +264,14 @@ class PrintService:
         copies: int = job.copies or 1
         job_type = job.job_type
 
+        rotate = params.get("rotate", 0)
+
         if job_type == "png":
             printer.print_png(
                 job.get_input_file_path(),
                 fit=params.get("fit", "fit"),
                 margin_mm=params.get("margin_mm", 0.0),
+                rotate=rotate,
                 copies=copies,
             )
         elif job_type == "pdf":
@@ -277,6 +280,7 @@ class PrintService:
                 page=params.get("page", 0),
                 fit=params.get("fit", "fit"),
                 margin_mm=params.get("margin_mm", 0.0),
+                rotate=rotate,
                 copies=copies,
             )
         elif job_type == "text":
@@ -284,10 +288,13 @@ class PrintService:
                 params["text"],
                 font_size=params.get("font_size"),
                 fit=params.get("fit", "fill"),
+                rotate=rotate,
                 copies=copies,
             )
         elif job_type == "markdown":
-            printer.print_markdown(params["text"], fit=params.get("fit", "fill"))
+            printer.print_markdown(
+                params["text"], fit=params.get("fit", "fill"), rotate=rotate
+            )
         elif job_type == "barcode":
             if params.get("text"):
                 printer.print_barcode_with_text(

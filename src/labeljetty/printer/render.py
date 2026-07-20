@@ -49,6 +49,7 @@ def render_label_image(
     """
     params = params or {}
     printer = _printer(width_mm, height_mm, dpi)
+    rotate = params.get("rotate", 0)
 
     if job_type == "png":
         if input_file_path is None:
@@ -57,6 +58,7 @@ def render_label_image(
             str(input_file_path),
             fit=params.get("fit", "fit"),
             margin_mm=params.get("margin_mm", 0.0),
+            rotate=rotate,
         )
     elif job_type == "pdf":
         if input_file_path is None:
@@ -66,16 +68,18 @@ def render_label_image(
             page=params.get("page", 0),
             fit=params.get("fit", "fit"),
             margin_mm=params.get("margin_mm", 0.0),
+            rotate=rotate,
         )
     elif job_type == "text":
         img = printer.build_text_image(
             params.get("text", ""),
             font_size=params.get("font_size"),
             fit=params.get("fit", "fill"),
+            rotate=rotate,
         )
     elif job_type == "markdown":
         img = printer.build_markdown_image(
-            params.get("text", ""), fit=params.get("fit", "fill")
+            params.get("text", ""), fit=params.get("fit", "fill"), rotate=rotate
         )
     elif job_type == "barcode":
         img = printer.build_barcode_image(

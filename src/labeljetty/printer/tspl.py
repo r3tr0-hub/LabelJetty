@@ -348,6 +348,40 @@ class TSPLPrinter:
         canvas.paste(inset, (margin_px, margin_px))
         return canvas
 
+    def _apply_rotation(self, build_fn, rotate: int) -> Image.Image:
+        """Build a label image under an optionally-rotated geometry, then rotate
+        the finished bitmap back onto the real label.
+
+        ``rotate`` is a clockwise angle in degrees, snapped to 0/90/180/270 (any
+        other value is treated as 0). For 90°/270° the label geometry is
+        transposed (width ↔ height, in both mm and px) *while* ``build_fn`` runs,
+        so auto-fit — text sizing, image scaling — targets the rotated aspect
+        ratio; the result is then rotated to land back on the real label. 180°
+        needs no swap, just a flip. ``build_fn`` takes no arguments and returns a
+        full label-sized PIL image.
+
+        Rotation direction matches the printer's ``BARCODE``/QR convention
+        (``rotate=90`` turns the content a quarter-turn clockwise).
+        """
+        rotate = int(rotate or 0) % 360
+        if rotate not in (90, 180, 270):
+            return build_fn()
+
+        swap = rotate in (90, 270)
+        if swap:
+            self.width_mm, self.height_mm = self.height_mm, self.width_mm
+            self.width_px, self.height_px = self.height_px, self.width_px
+        try:
+            img = build_fn()
+        finally:
+            if swap:
+                self.width_mm, self.height_mm = self.height_mm, self.width_mm
+                self.width_px, self.height_px = self.height_px, self.width_px
+
+        # Negative angle = clockwise in PIL; expand keeps the exact transposed
+        # size (a 90° multiple never introduces gaps to fill).
+        return img.rotate(-rotate, expand=True)
+
     def _render_and_print_image(
         self, img: Image.Image, x: int = 0, y: int = 0, copies: int = 1
     ):
@@ -375,14 +409,25 @@ class TSPLPrinter:
         x: int = 0,
         y: int = 0,
         margin_mm: float = 0.0,
+        rotate: int = 0,
     ) -> Image.Image:
         """Load a PNG and scale it onto a full label canvas (no print).
 
         ``fit`` selects the scaling mode (see :meth:`_fit_image`). When an
         explicit ``width``/``height`` is given those take precedence (legacy
         exact sizing), composed at ``(x, y)``. ``margin_mm`` reserves a blank
-        safety border (ignored under explicit ``width``/``height``).
+        safety border (ignored under explicit ``width``/``height``). ``rotate``
+        turns the content by 0/90/180/270° clockwise on the same label (see
+        :meth:`_apply_rotation`).
         """
+        if rotate % 360:
+            return self._apply_rotation(
+                lambda: self.build_png_image(
+                    png, fit=fit, width=width, height=height, x=x, y=y,
+                    margin_mm=margin_mm,
+                ),
+                rotate,
+            )
         img = Image.open(png)
 
         if width is not None or height is not None:
@@ -409,6 +454,7 @@ class TSPLPrinter:
         y: int = 0,
         copies: int = 1,
         margin_mm: float = 0.0,
+        rotate: int = 0,
     ):
         """
         Print a PNG image on the label.
@@ -423,9 +469,12 @@ class TSPLPrinter:
             copies: Number of labels to print.
             margin_mm: Blank safety border to reserve on all sides (see
                 :meth:`_fit_image`).
+            rotate: Rotate the content by 0/90/180/270° clockwise on the same
+                label (see :meth:`_apply_rotation`).
         """
         img = self.build_png_image(
-            png, fit=fit, width=width, height=height, x=x, y=y, margin_mm=margin_mm
+            png, fit=fit, width=width, height=height, x=x, y=y,
+            margin_mm=margin_mm, rotate=rotate,
         )
         self._render_and_print_image(img, 0, 0, copies=copies)
 
@@ -440,6 +489,7 @@ class TSPLPrinter:
         fit: str = "fit",
         copies: int = 1,
         margin_mm: float = 0.0,
+        rotate: int = 0,
     ):
         """
         Render PDF page(s) to a label-sized bitmap and print.
@@ -454,11 +504,14 @@ class TSPLPrinter:
             fit: Scaling mode for each page.
             copies: Copies per page.
             margin_mm: Blank safety border to reserve on all sides.
+            rotate: Rotate each page by 0/90/180/270° clockwise on the same
+                label (see :meth:`_apply_rotation`).
         """
         for img in self._render_pdf_pages(pdf, page):
-            self._render_and_print_image(
-                self._fit_image(img, fit, margin_mm=margin_mm), 0, 0, copies=copies
+            page_img = self._apply_rotation(
+                lambda img=img: self._fit_image(img, fit, margin_mm=margin_mm), rotate
             )
+            self._render_and_print_image(page_img, 0, 0, copies=copies)
 
     def _render_pdf_pages(
         self,
@@ -509,14 +562,19 @@ class TSPLPrinter:
         page: Union[int, Literal["all"]] = 0,
         fit: str = "fit",
         margin_mm: float = 0.0,
+        rotate: int = 0,
     ) -> Image.Image:
         """Render a single PDF page to a label image (no print).
 
-        For a preview, ``"all"`` falls back to the first page.
+        For a preview, ``"all"`` falls back to the first page. ``rotate`` turns
+        the page by 0/90/180/270° clockwise on the same label (see
+        :meth:`_apply_rotation`).
         """
         index = 0 if page == "all" else page
         for img in self._render_pdf_pages(pdf, index):
-            return self._fit_image(img, fit, margin_mm=margin_mm)
+            return self._apply_rotation(
+                lambda: self._fit_image(img, fit, margin_mm=margin_mm), rotate
+            )
         raise ValueError("PDF has no pages to render")
 
     # ------------------------------------------------------------ #
@@ -642,6 +700,7 @@ class TSPLPrinter:
         fit: str = "fill",
         font_path: str = DEFAULT_FONT_PATH,
         copies: int = 1,
+        rotate: int = 0,
     ):
         """
         Render plain text to the label with word wrapping.
@@ -656,9 +715,12 @@ class TSPLPrinter:
                 the label width, keeping your line breaks).
             font_path: TrueType font to use.
             copies: Number of labels to print.
+            rotate: Rotate the text by 0/90/180/270° clockwise on the same label;
+                auto-fit adapts to the rotated shape (see :meth:`_apply_rotation`).
         """
         img = self.build_text_image(
-            text, x=x, y=y, font_size=font_size, fit=fit, font_path=font_path
+            text, x=x, y=y, font_size=font_size, fit=fit, font_path=font_path,
+            rotate=rotate,
         )
         self._render_and_print_image(img, 0, 0, copies=copies)
 
@@ -670,8 +732,16 @@ class TSPLPrinter:
         font_size: Optional[int] = None,
         fit: str = "fill",
         font_path: str = DEFAULT_FONT_PATH,
+        rotate: int = 0,
     ) -> Image.Image:
         """Render plain text to a full label image (no print). See ``print_text``."""
+        if rotate % 360:
+            return self._apply_rotation(
+                lambda: self.build_text_image(
+                    text, x=x, y=y, font_size=font_size, fit=fit, font_path=font_path
+                ),
+                rotate,
+            )
         items = [(line.rstrip(), 1.0) for line in (text.splitlines() or [""])]
         return self._render_text_block(
             items, x, y, base_size=font_size, fit=fit, font_path=font_path
@@ -749,6 +819,7 @@ class TSPLPrinter:
         base_font_size: Optional[int] = None,
         fit: str = "fill",
         copies: int = 1,
+        rotate: int = 0,
     ):
         """
         Very basic markdown → text rendering:
@@ -764,7 +835,8 @@ class TSPLPrinter:
         the label width keeping line breaks); pass a value to fix the body size.
         """
         img = self.build_markdown_image(
-            md_text, x=x, y=y, font_path=font_path, base_font_size=base_font_size, fit=fit
+            md_text, x=x, y=y, font_path=font_path, base_font_size=base_font_size,
+            fit=fit, rotate=rotate,
         )
         self._render_and_print_image(img, 0, 0, copies=copies)
 
@@ -776,8 +848,17 @@ class TSPLPrinter:
         font_path=DEFAULT_FONT_PATH,
         base_font_size: Optional[int] = None,
         fit: str = "fill",
+        rotate: int = 0,
     ) -> Image.Image:
         """Render basic markdown to a full label image (no print). See ``print_markdown``."""
+        if rotate % 360:
+            return self._apply_rotation(
+                lambda: self.build_markdown_image(
+                    md_text, x=x, y=y, font_path=font_path,
+                    base_font_size=base_font_size, fit=fit,
+                ),
+                rotate,
+            )
         items: List[tuple[str, float]] = []
         for line in md_text.splitlines():
             line = line.strip()
