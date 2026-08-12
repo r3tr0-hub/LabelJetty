@@ -7,9 +7,12 @@ services:
     restart: unless-stopped
     ports:
       - "8888:8888"
-    devices:
-      # The printer's USB bus (host udev rule governs the actual permissions).
-      - /dev/bus/usb:/dev/bus/usb
+    # The printer's USB bus (host udev rule governs the actual permissions). Not a
+    # `devices:` mapping: that pins the node present at 'up' time, so a replugged
+    # printer stays invisible until the container is recreated. See the top-level
+    # docker-compose.yml for the full explanation.
+    device_cgroup_rules:
+      - "c 189:* rmw"
     environment:
       # Pinned for robustness across image versions. Once a release with USB
       # auto-discovery is published, this line is optional on a single-printer Pi.
@@ -23,3 +26,5 @@ services:
       # SESSION_SECRET: another-long-random-string
     volumes:
       - ./data:/data
+      # Live view of the USB bus, paired with device_cgroup_rules above.
+      - /dev/bus/usb:/dev/bus/usb
