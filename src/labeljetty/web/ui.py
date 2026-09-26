@@ -49,6 +49,34 @@ log = get_logger()
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 templates = Jinja2Templates(directory=TEMPLATES_DIR)
 
+# Python 3.14 ужесточил хеширование: ключ кеша Jinja2 (кортеж с dict внутри)
+# стал нехешируемым → TypeError. Отключаем кеш шаблонов. Для внутренней
+# системы производительность не критична — шаблоны маленькие, читаются с SSD.
+templates.env.cache = None
+
+# Starlette 1.x поменял сигнатуру TemplateResponse:
+#   было:  TemplateResponse(name, context)
+#   стало: TemplateResponse(request, name, context)
+# Проект написан под старую сигнатуру. Оборачиваем метод, чтобы старые вызовы
+# автоматически превращались в новые — не править 20+ мест в этом файле.
+_original_template_response = templates.TemplateResponse
+
+
+def _compat_template_response(*args, **kwargs):
+    # Старый стиль: первый аргумент — строка (имя шаблона), второй — dict.
+    if args and isinstance(args[0], str):
+        name = args[0]
+        context = args[1] if len(args) > 1 and isinstance(args[1], dict) else {}
+        rest = args[2:]
+        request = context.get("request")
+        if request is not None:
+            return _original_template_response(request, name, context, *rest, **kwargs)
+    # Новый стиль (или нестандартный вызов) — пробрасываем как есть.
+    return _original_template_response(*args, **kwargs)
+
+
+templates.TemplateResponse = _compat_template_response
+
 ui_router = APIRouter(include_in_schema=False)
 
 # Job types that carry an uploaded file rather than form parameters.
