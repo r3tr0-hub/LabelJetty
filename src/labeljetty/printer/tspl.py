@@ -5,7 +5,12 @@ from labeljetty.printer.connection import TSPLPrinterConnectionUSB
 
 from pydantic import BaseModel
 
-DEFAULT_FONT_PATH = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+import sys
+
+if sys.platform == "win32":
+    DEFAULT_FONT_PATH = "C:/Windows/Fonts/arialbd.ttf"
+else:
+    DEFAULT_FONT_PATH = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
 
 # The set of renderer kinds the library/service can produce. Lives here (the
 # library) rather than in the persistence layer so the printer package stays
