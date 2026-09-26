@@ -94,6 +94,17 @@ class QRCodePrintRequest(LabelOptions):
     )
 
 
+class RawTSPLPrintRequest(LabelOptions):
+    tspl: str = Field(
+        description="Готовые TSPL-команды для отправки в принтер. Должны "
+        "содержать полный набор команд, включая финальный PRINT."
+    )
+    profile_name: Optional[str] = Field(
+        default=None,
+        description="Имя профиля этикетки (например, '75x120' или '58x40'). "
+        "Зарезервировано под мультипринтер — сейчас логируется.",
+    )
+
 # --------------------------------------------------------------------------- #
 #  Helpers
 # --------------------------------------------------------------------------- #
@@ -260,6 +271,26 @@ async def print_qrcode(
         },
     )
 
+
+@fast_api_router.post("/print/raw", tags=["Print"])
+async def print_raw(
+    access: Annotated[bool, Depends(require_access)],
+    body: RawTSPLPrintRequest,
+) -> PrintJob:
+    # Падаем сразу с 400, если кириллица не влезет в cp1251 — иначе кракозябры.
+    try:
+        body.tspl.encode("cp1251")
+    except UnicodeEncodeError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"TSPL содержит символы, которые нельзя закодировать в cp1251: {e}",
+        )
+
+    return _enqueue(
+        "raw",
+        opts=body,
+        params={"tspl": body.tspl, "profile_name": body.profile_name},
+    )
 
 # --------------------------------------------------------------------------- #
 #  Meta

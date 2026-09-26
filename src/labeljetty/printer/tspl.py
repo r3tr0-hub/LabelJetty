@@ -15,7 +15,7 @@ else:
 # The set of renderer kinds the library/service can produce. Lives here (the
 # library) rather than in the persistence layer so the printer package stays
 # free of any internal dependency.
-JobType = Literal["png", "pdf", "text", "markdown", "barcode", "qrcode"]
+JobType = Literal["png", "pdf", "text", "markdown", "barcode", "qrcode", "raw"]
 
 
 class TSPLPrinterStatusMessage(BaseModel):
@@ -227,11 +227,18 @@ class TSPLPrinter:
         Get human-readable error message based on current status.
 
         Returns:
-            str: Error message or "No errors" if printer is okay
+            str: Error message or None if the printer is okay or still printing.
         """
         status = self.get_status()
 
-        if status is None or (status.ready and not status.error):
+        if status is None:
+            return None
+        # ``printing`` is a normal transient state right after we send PRINT —
+        # not an error. Without this check, every successfully-printed label
+        # would be marked as failed with the misleading "Printer not ready".
+        if status.printing:
+            return None
+        if status.ready and not status.error:
             return None
 
         errors: List[str] = []
@@ -250,7 +257,7 @@ class TSPLPrinter:
         if not status.ready and not errors:
             errors.append("Printer not ready")
 
-        return "; ".join(errors) if errors else "Unknown status"
+        return "; ".join(errors) if errors else None
 
     # ------------------------------------------------------------ #
     # Convert PIL image → TSPL BITMAP command
@@ -1203,6 +1210,24 @@ class TSPLPrinter:
             font_size=font_size, font_path=font_path, border=border,
         )
         self._render_and_print_image(canvas, 0, 0, copies=copies)
+
+    def print_raw_tspl(self, tspl: str, copies: int = 1) -> None:
+        """Отправить готовую TSPL-программу в принтер как есть.
+
+        Строка ``tspl`` должна содержать полный набор команд, включая
+        финальный ``PRINT n``. Кодируется в cp1251, чтобы соответствовать
+        ``CODEPAGE \"1251\"`` в шаблоне. Параметр ``copies`` не используется —
+        количество копий контролируется самой TSPL-программой.
+        """
+        payload = tspl.encode("cp1251", errors="replace")
+        if not payload.endswith(b"\n"):
+            payload += b"\n"
+        if self.dry_run_mode:
+            print(payload)
+            return
+        # raw=True + bytes → _to_wire вернёт байты как есть, без ASCII-перекодировки
+        # и без добавления \n. Это критично для кириллицы в cp1251.
+        self.connection.send(payload, raw=True)
 
     def build_qrcode_with_text_image(
         self,

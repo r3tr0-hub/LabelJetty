@@ -323,6 +323,11 @@ class PrintService:
                     ecc_level=params.get("ecc_level", "M"),
                     copies=copies,
                 )
+        elif job_type == "raw":
+            printer.print_raw_tspl(
+                params["tspl"],
+                copies=copies,
+            )
         else:
             raise ValueError(f"Unknown job_type: {job_type}")
 

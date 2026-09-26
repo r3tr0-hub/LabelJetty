@@ -32,7 +32,8 @@ def run():
         )
     Path(config.IMAGE_STORAGE_DIRECTORY).mkdir(parents=True, exist_ok=True)
 
-    event_loop = asyncio.get_event_loop()
+    event_loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(event_loop)
     uvicorn_log_config = LOGGING_CONFIG
     fast_api_container = FastApiAppContainer()
     uvicorn_config = uvicorn.Config(

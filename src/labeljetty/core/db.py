@@ -1,6 +1,7 @@
 from typing import Optional, Literal, Dict, Generator, Any
 from datetime import datetime
 from sqlmodel import SQLModel, Field, Column, Session, create_engine, select
+from pydantic import NaiveDatetime
 from sqlalchemy import String
 from contextlib import contextmanager
 from labeljetty.core.sqltypes import SqlJsonText
@@ -43,9 +44,9 @@ class PrintJob(SQLModel, table=True):
         default=None,
         sa_column=Column(SqlJsonText),
     )
-    created_at: datetime = Field(default_factory=datetime.now)
-    started_at: Optional[datetime] = None
-    finished_at: Optional[datetime] = None
+    created_at: NaiveDatetime = Field(default_factory=datetime.now)
+    started_at: Optional[NaiveDatetime] = None
+    finished_at: Optional[NaiveDatetime] = None
 
     def get_status(self) -> Literal["queued", "processing", "done", "failed"]:
         if self.started_at is None:
@@ -64,10 +65,21 @@ class PrintJob(SQLModel, table=True):
 
     @field_serializer("printer_status_on_finished")
     def serialize_printer_status(
-        self, value: Optional[TSPLPrinterStatusMessage]
+        self, value: Optional[TSPLPrinterStatusMessage | Dict[str, Any]]
     ) -> Optional[Dict[str, Any]]:
-        """Convert TSPLPrinterStatusMessage to dict for database storage"""
-        return value.model_dump() if value is not None else None
+        """Convert TSPLPrinterStatusMessage to dict for storage/response.
+
+        Pydantic v2.13 вызывает этот метод и при сериализации ORM-инстансов,
+        где поле уже загружено из SQLite как dict — поэтому проверяем тип
+        и не полагаемся на ``.model_dump()`` безусловно.
+        """
+        if value is None:
+            return None
+        if isinstance(value, dict):
+            return value
+        if hasattr(value, "model_dump"):
+            return value.model_dump()
+        return value  # на всякий случай — что-то иное
 
     @field_validator("printer_status_on_finished", mode="before")
     @classmethod
@@ -89,7 +101,7 @@ class SettingOverride(SQLModel, table=True):
 
     key: str = Field(primary_key=True, description="Config field name, e.g. DEFAULT_DPI")
     json_value: str = Field(description="json.dumps() of the override value")
-    updated_at: datetime = Field(default_factory=datetime.now)
+    updated_at: NaiveDatetime = Field(default_factory=datetime.now)
 
 
 class WorkerStatus(SQLModel, table=True):
